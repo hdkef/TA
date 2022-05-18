@@ -1,0 +1,218 @@
+//konstanta////////////////////////////////////////
+//temperatur
+const float TEMP_SETPOINT = 90.0; //set point dari temperatur
+const float TEMP_MAX = 100.0; //range maksimal transmitter
+const float TEMP_MIN = 0.0; //range minimal transmitter
+const int TEMP_PIN = A0; //pin transmitter ke arduino
+
+//solenoid
+const int CO2_PIN = 34; //pin relay solenoid CO2
+const int NAOH_PIN = 35; //pin relay solenoid NaOH
+
+//switch
+const int LSH_PIN = 23; //pin lsh
+const int LSL_PIN = 24; //pin lsl
+
+//pilot lamp
+const int LSH_LAMP_PIN = 37; //pin LSH lamp
+const int LSL_LAMP_PIN = 36; //pin LSL lamp
+
+//dimmer heater NaOH dan firing dan pwm
+const int DIM_NAOH_RELAY_PIN = 33; //pin relay ac dimmer NaOH
+const int DIM_NAOH_FIRING_PIN = 46; //firing untuk kendalikan tegangan ac
+const int DIM_NAOH_ZERO_PIN = 51; //pin untuk zero cross ac
+const int MAX_FIRING_DELAY = 7400; //maksimal delay dimmer
+
+//LCD
+const int LCD_ADDR = 0x24; //address LCD
+
+//Switch
+const int NAOH_LVL_PIN = 22; //pin switch level NaOH
+
+//kalimat LCD
+const String TXT_LSH_ERR = "LSH TIDAK TERDETEKSI, LANJUT ?"; //kalimat lcd jika lsh tidak terdeteksi
+const String TXT_LVL_ERR = "LEVEL NAOH TIDAK MENCUKUPI";
+const String TXT_STOP_SCRUB = "SCRUBBING BERHENTI";
+/////////////////////////////////////////////////////////
+
+//variabel///////////////////////////////////////////////
+//status push button start scrubbing
+int start_scrubbing = 0; //0 arti no action, 1 arti tertekan
+
+//status solenoid naoh
+int naoh_status = 0; //0 berarti tutup 1 berarti buka
+
+//status lsh
+int lsh_status = 0; //0 berarti lsh normal, 1 berarti lsh error, 2 berarti lsh error dan diizinkan pakai timer
+
+//status push buton stop scrubbing
+int stop_scrubbing = 0; //0 berarti no action, 1 berarti push button stop scrubbing ditekan
+
+//status pid kontrol
+int pid_kontrol_status = 0; //0 berarti kontrol pid tidak berjalan, 1 berarti berjalan
+
+int sample_count = 0; //menyimpan data sampel dari temperatur dengan range tertentu
+//PID variables dan temperatur dan dimmer
+bool zero_cross_detected = false;
+float real_temp = 0.0;
+float PID_error = 0.0;
+float previous_error = 0.0;
+float elapsedTime, Time, timePrev;
+long PID_value = 0.0;
+int kp = 2900;   int ki = 0;   int kd = 0;
+long PID_p = 0;    long PID_i = 0;    long PID_d = 0;
+////////////////////////////////////////////////////////
+
+//library//////////////////////////////////////////////
+//lcd
+#include <LiquidCrystal_I2C.h>
+LiquidCrystal_I2C lcd(LCD_ADDR,16,2);
+
+//////////////////////////////////////////////////////
+
+void setup() {
+  Serial.begin(9600);
+  pinMode(LSH_PIN,INPUT);
+  pinMode(LSL_PIN,INPUT);
+  pinMode(CO2_PIN,OUTPUT);
+  pinMode(NAOH_PIN,OUTPUT);
+  pinMode(NAOH_LVL_PIN,INPUT);
+  pinMode(DIM_NAOH_RELAY_PIN,OUTPUT);
+}
+
+//tutup solenoid CO2 dan NaOH dan matikan PID kontrol
+void stopScrubbing(){
+  digitalWrite(DIM_NAOH_RELAY_PIN,LOW); //tutup dimmer heater naoh
+  digitalWrite(CO2_PIN,LOW); //tutup solenoid co2
+  digitalWrite(NAOH_PIN,LOW); //tutup solenoid naoh
+  pid_kontrol_status = 0; //matikan kontrol pid
+  sample_count = 0; //reset status sample
+  naoh_status = 0; //reset status naoh
+  //kirim status scrubbing stop ke lcd
+}
+
+//cek switch naoh level jika gagal return false
+bool cekNaOHLevel(){
+  if (digitalRead(NAOH_LVL_PIN == HIGH)){
+    return true;
+  }
+  return false;
+}
+
+//cek switch lsh jika gagal return false
+bool cekLSH(){
+  if (digitalRead(LSH_PIN == HIGH)){
+    return true;
+  }
+  return false;
+}
+
+//baca penilaian RTD
+float readRTD(){
+  float analog_raw = analogRead(TEMP_PIN);
+  float voltage_raw = ((analog_raw * 5.0 / 1024.0) - 1.0);
+  float temp_celcius = (voltage_raw * (TEMP_MAX - TEMP_MIN) / 4.0) + TEMP_MIN;
+  //kirim lcd nilai temperatur
+  return temp_celcius;
+}
+
+void doSampling(float temp){
+  if (temp > TEMP_SETPOINT - 1 && temp < TEMP_SETPOINT + 1){
+    sample_count++; //melakukan sampel suhu dengan membandingkan dengan temp setpoint +- 1
+  }
+}
+
+//kontrol temperatur NaOH dan LSH normal
+void PIDKontrol(){
+  if (pid_kontrol_status == 0){
+    return 0;
+  }
+
+  digitalWrite(DIM_NAOH_RELAY_PIN,HIGH);//nyalakan relay acdimmer
+  
+  real_temp = readRTD(); //baca temperatur
+  PID_error = TEMP_SETPOINT - real_temp; //Calculate the pid ERROR
+    
+  PID_p = kp * PID_error; //hitung proporsional
+  PID_i = PID_i + (ki * PID_error); //hitung integral
+  timePrev = Time; //waktu sebelumnya disimpan ke variable timePrev
+  Time = millis(); //waktu sekarang
+  elapsedTime = (Time - timePrev) / 1000;
+  PID_d = kd *((PID_error - previous_error)/elapsedTime); //hitung kd
+  PID_value = PID_p + PID_i + PID_d;
+  if(PID_value < 0){
+    PID_value = 0; //nilai pid tidak boleh negatif
+  }
+  else if (PID_value > 7400){
+    PID_value = 7400; //nilai pid tidak boleh melebihi batas delay ac dimmer (7400)
+  }
+  previous_error = PID_error; //simpan error ke previous_error
+
+  if (zero_cross_detected){ //beri respon ke heater lewat dimmer
+      delayMicroseconds(MAX_FIRING_DELAY - PID_value); //This delay controls the power
+      digitalWrite(DIM_NAOH_FIRING_PIN,HIGH);
+      delayMicroseconds(100);
+      digitalWrite(DIM_NAOH_FIRING_PIN,LOW);
+      zero_cross_detected = false;
+   }
+
+  doSampling(real_temp);
+}
+
+void openCO2(){
+  
+}
+
+void loop() {
+  //if start scrubbing gak ditekan, stop looping
+  if (start_scrubbing == 0){
+    return 0;
+  }
+
+  //jika stop scrubbing ditekan
+  if (stop_scrubbing == 1){
+    stopScrubbing();
+    start_scrubbing = 0; //reset status start scrubbing
+    stop_scrubbing = 0; //reset status stop scrubbing
+    //kirim lcd scrubbing stop
+    return 0;
+  }
+
+  //jika solenoid naoh dibuka dan lsh normal dan lsh off
+  if (naoh_status == 1 && lsh_status == 0){
+    if (digitalRead(LSH_PIN == LOW)){
+      digitalWrite(NAOH_PIN,LOW); //tutup solenoid naoh
+      openCO2();
+    }
+  }
+  
+  //cek naoh level
+  bool level_clear = cekNaOHLevel();
+  if (level_clear == false){
+    //kirim status error ke lcd
+    return 0;
+  }
+  
+  //cek lsh
+  bool lsh_clear = cekLSH();
+  if (lsh_clear == false && lsh_status != 2){
+    //kirim status error ke lcd
+    lsh_status = 1; //ganti lsh_status
+  }
+
+  //pid kontrol temperatur NaOH
+  if (start_scrubbing == 1 && pid_kontrol_status == 0){
+    pid_kontrol_status = 1;
+  }
+
+  //pid kontrol temperatur NaOH
+  PIDKontrol();
+
+  if (sample_count > 10){
+    digitalWrite(NAOH_PIN,HIGH); //jika temperatur sudah sesuai sampel, buka solenoid NaOH
+    naoh_status = 1; //ganti status
+    pid_kontrol_status = 0;
+    //kirim lcd NaOH dibuka
+  }
+
+}
