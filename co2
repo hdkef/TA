@@ -1,0 +1,57 @@
+//konstanta///////////////////////////
+//co2 sensor
+const int PWM_PIN = 9;
+const long CO2_RANGE = 50000;
+
+//lcd
+const int LCD_ADDR = 0x27;
+/////////////////////////////////////
+
+//library////////////////////////////
+#include <LiquidCrystal_I2C.h>
+LiquidCrystal_I2C lcd(LCD_ADDR,16,2);
+/////////////////////////////////////
+
+void sendToLCD(long ppm){
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print("CO2 ");
+  lcd.setCursor(5,0);
+  lcd.print(ppm);
+  lcd.setCursor(0,1);
+  lcd.print("PPM");
+}
+
+long gas_concentration_PWM() {
+  while (digitalRead(PWM_PIN) == LOW) {};
+  long t0 = millis();
+  while (digitalRead(PWM_PIN) == HIGH) {};
+  long t1 = millis();
+  while (digitalRead(PWM_PIN) == LOW) {};
+  long t2 = millis();
+  long tH = t1-t0;
+  long tL = t2-t1;
+  long ppm = CO2_RANGE * (tH - 2) / (tH + tL - 4);
+  while (digitalRead(PWM_PIN) == HIGH) {};
+  delay(10);
+  
+  return ppm;
+}
+
+void setup() {
+  // put your setup code here, to run once:
+  lcd.begin();
+  lcd.backlight();
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print("Preheat sensor 3 menit ");
+  delay(180000); // preheat the lamp for 3 minutes
+}
+
+void loop() {
+  // put your main code here, to run repeatedly:
+  long ppm_result = gas_concentration_PWM();
+  sendToLCD(ppm_result);
+
+  delay(500); //delay 500 second
+}
