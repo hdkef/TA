@@ -1,0 +1,139 @@
+//konstanta////////////////////////////////////////
+//temperatur
+const float TEMP_SETPOINT = 120.0; //set point dari temperatur
+const float TEMP_MAX = 150.0; //range maksimal transmitter
+const float TEMP_MIN = 0.0; //range minimal transmitter
+const int TEMP_PIN = A0; //pin transmitter ke arduino
+
+//dimmer heater evap dan firing dan pwm
+const int DIM_EVAP_RELAY_PIN = 33; //pin relay ac dimmer NaOH
+const int DIM_EVAP_FIRING_PIN = 46; //firing untuk kendalikan tegangan ac
+const int DIM_EVAP_ZERO_PIN = 51; //pin untuk zero cross ac
+const int MAX_FIRING_DELAY = 7400; //maksimal delay dimmer
+
+//LCD
+const int LCD_ADDR = 0x24; //address LCD
+
+//kalimat LCD
+const String TXT_STOP_EVAP = "EVAPORATOR BERHENTI";
+
+//variabel////////////////////////////////////////
+//status push button start evaporator
+int start_evap = 0; //0 artinya no action 1 artinya ditekan
+
+//status push button stop evap
+int stop_evap = 0; //0 artinya no action 1 artina ditekan
+
+//status timer
+int timer_status = 0; //0 artinya no action, 1 artinya aktif
+
+//status pid kontrol
+int pid_kontrol_status = 0; //0 berarti kontrol pid tidak berjalan, 1 berarti berjalan
+
+int sample_count = 0; //menyimpan data sampel dari temperatur dengan range tertentu
+//PID variables dan temperatur dan dimmer
+bool zero_cross_detected = false;
+float real_temp = 0.0;
+float PID_error = 0.0;
+float previous_error = 0.0;
+float elapsedTime, Time, timePrev;
+long PID_value = 0.0;
+int kp = 2900;   int ki = 0;   int kd = 0;
+long PID_p = 0;    long PID_i = 0;    long PID_d = 0;
+
+//library//////////////////////////////////////////////
+//lcd
+#include <LiquidCrystal_I2C.h>
+LiquidCrystal_I2C lcd(LCD_ADDR,16,2);
+
+//tutup solenoid CO2 dan NaOH dan matikan PID kontrol
+void stopEvap(){
+  digitalWrite(DIM_EVAP_RELAY_PIN,LOW); //tutup dimmer heater naoh
+  pid_kontrol_status = 0; //matikan kontrol pid
+  sample_count = 0; //reset status sample
+  timer_status = 0; //reset timer
+  //kirim status evaporator stop ke lcd
+}
+
+//baca penilaian RTD
+float readRTD(){
+  float analog_raw = analogRead(TEMP_PIN);
+  float voltage_raw = ((analog_raw * 5.0 / 1024.0) - 1.0);
+  float temp_celcius = (voltage_raw * (TEMP_MAX - TEMP_MIN) / 4.0) + TEMP_MIN;
+  //kirim lcd nilai temperatur
+  return temp_celcius;
+}
+
+void startTimer(){
+  if (timer_status == 0){
+    timer_status = 1; //ganti status timer
+    
+  }
+}
+
+void doSampling(float temp){
+  if (temp > TEMP_SETPOINT - 1 && temp < TEMP_SETPOINT + 1){
+    sample_count++; //melakukan sampel suhu dengan membandingkan dengan temp setpoint +- 1
+  }
+  startTimer();
+}
+
+//kontrol temperatur NaOH dan LSH normal
+void PIDKontrol(){
+  if (pid_kontrol_status == 0){
+    return 0;
+  }
+
+  digitalWrite(DIM_NAOH_RELAY_PIN,HIGH);//nyalakan relay acdimmer
+  
+  real_temp = readRTD(); //baca temperatur
+  PID_error = TEMP_SETPOINT - real_temp; //Calculate the pid ERROR
+    
+  PID_p = kp * PID_error; //hitung proporsional
+  PID_i = PID_i + (ki * PID_error); //hitung integral
+  timePrev = Time; //waktu sebelumnya disimpan ke variable timePrev
+  Time = millis(); //waktu sekarang
+  elapsedTime = (Time - timePrev) / 1000;
+  PID_d = kd *((PID_error - previous_error)/elapsedTime); //hitung kd
+  PID_value = PID_p + PID_i + PID_d;
+  if(PID_value < 0){
+    PID_value = 0; //nilai pid tidak boleh negatif
+  }
+  else if (PID_value > 7400){
+    PID_value = 7400; //nilai pid tidak boleh melebihi batas delay ac dimmer (7400)
+  }
+  previous_error = PID_error; //simpan error ke previous_error
+
+  if (zero_cross_detected){ //beri respon ke heater lewat dimmer
+      delayMicroseconds(MAX_FIRING_DELAY - PID_value); //This delay controls the power
+      digitalWrite(DIM_NAOH_FIRING_PIN,HIGH);
+      delayMicroseconds(100);
+      digitalWrite(DIM_NAOH_FIRING_PIN,LOW);
+      zero_cross_detected = false;
+   }
+
+  doSampling(real_temp);
+}
+
+void setup() {
+  // put your setup code here, to run once:
+  pinMode(DIM_NAOH_RELAY_PIN,OUTPUT);
+}
+
+void loop() {
+  // put your main code here, to run repeatedly:
+  if (start_evap = 0){
+    return 0; //jika push button start belum ditekan, stop looping
+  }
+
+  //jika stop evap ditekan
+  if (stop_evap == 1){
+    stopEvap();
+    start_evap = 0; //reset status start scrubbing
+    stop_evap = 0; //reset status stop scrubbing
+    //kirim lcd scrubbing stop
+    return 0;
+  }
+
+  PIDKontrol();
+}
