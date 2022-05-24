@@ -44,8 +44,11 @@ void setup() {
   lcd.backlight();
   lcd.clear();
   lcd.setCursor(0,0);
-  lcd.print("Preheat sensor 3 menit ");
+  lcd.print("Preheat sensor");
   delay(180000); // preheat the lamp for 3 minutes
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print("Preheat done");
 }
 
 void loop() {
