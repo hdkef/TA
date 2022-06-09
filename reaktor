@@ -14,9 +14,11 @@ const int solenoidNaOHPin = 35;
 const int solenoidCO2Pin = 34;
 const int fill_time = 5000;
 const int scrub_time = 5000;
+const int startPin = 52;
+const int stopPin = 53;
 
 //variabel
-bool pbStart = true;
+bool pbStart = false;
 bool scrub_ready = false;
 bool solenoidCO2_status = false;
 bool solenoidNaOH_status = false;
@@ -24,19 +26,28 @@ bool fill_timer_status = false;
 bool scrub_timer_status = false;
 bool lsh_status = false;
 bool lsl_status = false;
+bool pb1_press = false;
+bool pb2_press = false;
 
 Neotimer timerFill = Neotimer(fill_time);
 Neotimer timerScrub = Neotimer(scrub_time);
 
 void setup() {
+  Serial.begin(9600);
   // put your setup code here, to run once:
   pinMode(lshInputPin,INPUT);
   pinMode(lslInputPin,INPUT);
+  pinMode(startPin,INPUT);
+  pinMode(stopPin,INPUT);
   pinMode(lshLampPin,OUTPUT);
   pinMode(lslLampPin,OUTPUT); //konfigurasi pullup resistor jika buka maka high dan tutup maka low
   pinMode(kompresorPin,OUTPUT); //normally closed, HIGH maka relay open
   pinMode(solenoidCO2Pin,OUTPUT);
   pinMode(solenoidNaOHPin,OUTPUT);
+
+  PCICR |= (1 << PCIE0);    //enable PCMSK0 scan                                                 
+  PCMSK0 |= (1 << PCINT0);  //Set pin 53 (zero cross input) trigger an interrupt on state change.
+  PCMSK0 |= (1 << PCINT1); //52
 
   lcd.begin();
   lcd.backlight();
@@ -52,7 +63,6 @@ void stopScrubbing(){
   delay(500);
   digitalWrite(kompresorPin,HIGH); //buka kontak kompressor
   solenoidCO2_status = false;
-  pbStart = false;
   scrub_ready = false;
   solenoidNaOH_status = false;
   fill_timer_status = false;
@@ -64,11 +74,14 @@ void loop() {
   //jika tombol pbstart true lanjut looping 
   if (pbStart != true){
     stopScrubbing();
+    lcd.clear();
+    lcd.setCursor(0,0);
+    lcd.print("idle");
     return 0;
   }
   
   //buka solenoid naoh dan start timer
-  if (solenoidNaOH_status == false && scrub_ready == false){
+  if (solenoidNaOH_status == false && scrub_ready == false && pbStart == true){
     lcd.clear();
     lcd.setCursor(0,0);
     lcd.print("open solenoid NaOH");
@@ -103,7 +116,7 @@ void loop() {
   }
 
 //jika timer selesai, solenoid naoh tutup
-  if (solenoidNaOH_status == true && timerFill.done() && scrub_ready == false && fill_timer_status == true){
+  if (solenoidNaOH_status == true && timerFill.done() && scrub_ready == false && fill_timer_status == true && pbStart == true){
     digitalWrite(solenoidNaOHPin,LOW); //tutup solenoid naoh
     solenoidNaOH_status == false;
     scrub_ready = true; //ready to scrub
@@ -114,9 +127,10 @@ void loop() {
   }
 
 //jika scrub_ready true, cek lsl dan siap-siap buka solenoid co2
-  if (scrub_ready == true && solenoidCO2_status == false){
+  if (scrub_ready == true && solenoidCO2_status == false && pbStart == true){
     if (lsl_status == false){
       stopScrubbing();
+      pbStart = false;
       lcd.clear();
       lcd.setCursor(0,0);
       lcd.print("not enough NaOH");
@@ -132,10 +146,37 @@ void loop() {
   }
 
 // jika timer scrub selesai, tutup solenoid co2 dan buka kompressor dan reset
-  if (timerScrub.done() && solenoidCO2_status == true && scrub_ready == true){
+  if (timerScrub.done() && solenoidCO2_status == true && scrub_ready == true&& pbStart == true){
     stopScrubbing();
+    pbStart = false;
     lcd.clear();
     lcd.setCursor(0,0);
     lcd.print("scrubbing finished");
   }
+}
+
+ISR(PCINT0_vect){
+  ///////////////////////////////////////Input from optocoupler
+  Serial.println(PINB,BIN);
+  if (PINB & B00000001){
+    if (!pb1_press){
+      Serial.println("stop");
+      stopScrubbing();
+      pbStart = false;
+      pb1_press = true;
+    }
+  }
+  else if (pb1_press){
+      pb1_press = false;
+    }
+  if (PINB & B00000010){
+    if (!pb2_press){
+      Serial.println("start");
+      pbStart = true;
+      pb2_press = true;
+    }
+  }
+  else if (pb2_press){
+      pb2_press = false;
+    }
 }
