@@ -12,8 +12,8 @@ const int lslLampPin = 36;
 const int kompresorPin = 33;
 const int solenoidNaOHPin = 35;
 const int solenoidCO2Pin = 34;
-const int fill_time = 5000;
-const int scrub_time = 5000;
+const int fill_time = 10000;
+const int scrub_time = 10000;
 const int startPin = 52;
 const int stopPin = 53;
 
@@ -24,8 +24,8 @@ bool solenoidCO2_status = false;
 bool solenoidNaOH_status = false;
 bool fill_timer_status = false;
 bool scrub_timer_status = false;
-bool lsh_status = false;
-bool lsl_status = false;
+bool lsh_status = true; //jika kontak tutup, maka high, dan lsh true. kontak terbuka ketika liquid di atas lsh
+bool lsl_status = false; //jika kontak tutup, maka high, dan lsl true. kontak terbuka ketika liquid di bawah lsl
 bool pb1_press = false;
 bool pb2_press = false;
 
@@ -40,7 +40,7 @@ void setup() {
   pinMode(startPin,INPUT);
   pinMode(stopPin,INPUT);
   pinMode(lshLampPin,OUTPUT);
-  pinMode(lslLampPin,OUTPUT); //konfigurasi pullup resistor jika buka maka high dan tutup maka low
+  pinMode(lslLampPin,OUTPUT); 
   pinMode(kompresorPin,OUTPUT); //normally closed, HIGH maka relay open
   pinMode(solenoidCO2Pin,OUTPUT);
   pinMode(solenoidNaOHPin,OUTPUT);
@@ -72,6 +72,7 @@ void stopScrubbing(){
 void loop() {
   // put your main code here, to run repeatedly:
   //jika tombol pbstart true lanjut looping 
+  Serial.println(digitalRead(lshInputPin));
   if (pbStart != true){
     stopScrubbing();
     lcd.clear();
@@ -92,38 +93,42 @@ void loop() {
   }
 
 //  jika posisi air di atas lsh, maka posisi kontak terbuka sehingga LOW
-  if (digitalRead(lshInputPin) == LOW && lsh_status == false){
+//posisi liquid di atas lsh maka lsh_status = false
+  if (digitalRead(lshInputPin) == LOW && lsh_status == true){
     digitalWrite(lshLampPin, HIGH);
-    lsh_status = true;
-  }
-
-  //jika posisi air di bawah lsh, maka posisi kontak tertutup sehingga HIGH
-  if (digitalRead(lshInputPin) == HIGH && lsh_status == true){
-    digitalWrite(lshLampPin, LOW);
     lsh_status = false;
   }
 
-  //jika posisi lsl di bawah maka posisi kontak terbuka pull up resistor jadi HIGH > lampu mati
-  if (digitalRead(lslInputPin) == HIGH && lsl_status == true){
+  //jika posisi air di bawah lsh, maka posisi kontak tertutup sehingga HIGH
+  if (digitalRead(lshInputPin) == HIGH && lsh_status == false){
+    digitalWrite(lshLampPin, LOW);
+    lsh_status = true;
+  }
+
+  //jika posisi lsl di bawah maka posisi kontak terbuka maka LOW
+  if (digitalRead(lslInputPin) == LOW && lsl_status == true){
     digitalWrite(lslLampPin, LOW);
     lsl_status = false;
   }
 
   //jika posisi lsl di atas maka kontak tertutup pull up resistor jadi LOW > lampu nyala
-  if (digitalRead(lslInputPin) == LOW && lsl_status == false){
+  //posisi liquid di atas lsl maka lsl_status = true
+  if (digitalRead(lslInputPin) == HIGH && lsl_status == false){
     digitalWrite(lslLampPin, HIGH);
     lsl_status = true;
   }
 
 //jika timer selesai, solenoid naoh tutup
-  if (solenoidNaOH_status == true && timerFill.done() && scrub_ready == false && fill_timer_status == true && pbStart == true){
-    digitalWrite(solenoidNaOHPin,LOW); //tutup solenoid naoh
-    solenoidNaOH_status == false;
-    scrub_ready = true; //ready to scrub
-    lcd.clear();
-    lcd.setCursor(0,0);
-    lcd.print("close solenoid NaOH");
-    delay(500);
+  if (solenoidNaOH_status == true && scrub_ready == false && fill_timer_status == true && pbStart == true){
+    if (timerFill.done() || lsh_status == false){
+      digitalWrite(solenoidNaOHPin,LOW); //tutup solenoid naoh
+      solenoidNaOH_status == false;
+      scrub_ready = true; //ready to scrub
+      lcd.clear();
+      lcd.setCursor(0,0);
+      lcd.print("close solenoid NaOH");
+      delay(500);
+    }
   }
 
 //jika scrub_ready true, cek lsl dan siap-siap buka solenoid co2
@@ -157,10 +162,8 @@ void loop() {
 
 ISR(PCINT0_vect){
   ///////////////////////////////////////Input from optocoupler
-  Serial.println(PINB,BIN);
   if (PINB & B00000001){
     if (!pb1_press){
-      Serial.println("stop");
       stopScrubbing();
       pbStart = false;
       pb1_press = true;
@@ -171,7 +174,6 @@ ISR(PCINT0_vect){
     }
   if (PINB & B00000010){
     if (!pb2_press){
-      Serial.println("start");
       pbStart = true;
       pb2_press = true;
     }
