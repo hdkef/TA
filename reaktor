@@ -1,0 +1,141 @@
+#include <Wire.h> 
+#include <LiquidCrystal_I2C.h>
+LiquidCrystal_I2C lcd(0x27,16,2);  //sometimes the adress is not 0x27. Change to 0x3f if it dosn't work.
+#include <neotimer.h>
+
+
+//konstanta
+const int lshInputPin = 22;
+const int lslInputPin = 23;
+const int lshLampPin = 37;
+const int lslLampPin = 36;
+const int kompresorPin = 33;
+const int solenoidNaOHPin = 35;
+const int solenoidCO2Pin = 34;
+const int fill_time = 5000;
+const int scrub_time = 5000;
+
+//variabel
+bool pbStart = true;
+bool scrub_ready = false;
+bool solenoidCO2_status = false;
+bool solenoidNaOH_status = false;
+bool fill_timer_status = false;
+bool scrub_timer_status = false;
+bool lsh_status = false;
+bool lsl_status = false;
+
+Neotimer timerFill = Neotimer(fill_time);
+Neotimer timerScrub = Neotimer(scrub_time);
+
+void setup() {
+  // put your setup code here, to run once:
+  pinMode(lshInputPin,INPUT);
+  pinMode(lslInputPin,INPUT);
+  pinMode(lshLampPin,OUTPUT);
+  pinMode(lslLampPin,OUTPUT); //konfigurasi pullup resistor jika buka maka high dan tutup maka low
+  pinMode(kompresorPin,OUTPUT); //normally closed, HIGH maka relay open
+  pinMode(solenoidCO2Pin,OUTPUT);
+  pinMode(solenoidNaOHPin,OUTPUT);
+
+  lcd.begin();
+  lcd.backlight();
+  lcd.clear();
+  lcd.print("initiating..");
+  
+  delay(500);
+}
+
+void stopScrubbing(){
+  digitalWrite(solenoidNaOHPin,LOW);
+  digitalWrite(solenoidCO2Pin,LOW); //tutup kontak solenoid co2
+  delay(500);
+  digitalWrite(kompresorPin,HIGH); //buka kontak kompressor
+  solenoidCO2_status = false;
+  pbStart = false;
+  scrub_ready = false;
+  solenoidNaOH_status = false;
+  fill_timer_status = false;
+  scrub_timer_status = false;
+}
+
+void loop() {
+  // put your main code here, to run repeatedly:
+  //jika tombol pbstart true lanjut looping 
+  if (pbStart != true){
+    stopScrubbing();
+    return 0;
+  }
+  
+  //buka solenoid naoh dan start timer
+  if (solenoidNaOH_status == false && scrub_ready == false){
+    lcd.clear();
+    lcd.setCursor(0,0);
+    lcd.print("open solenoid NaOH");
+    digitalWrite(solenoidNaOHPin,HIGH); //buka solenoid naoh
+    timerFill.start(); //start timer
+    solenoidNaOH_status = true;
+    fill_timer_status = true;
+  }
+
+//  jika posisi air di atas lsh, maka posisi kontak terbuka sehingga LOW
+  if (digitalRead(lshInputPin) == LOW && lsh_status == false){
+    digitalWrite(lshLampPin, HIGH);
+    lsh_status = true;
+  }
+
+  //jika posisi air di bawah lsh, maka posisi kontak tertutup sehingga HIGH
+  if (digitalRead(lshInputPin) == HIGH && lsh_status == true){
+    digitalWrite(lshLampPin, LOW);
+    lsh_status = false;
+  }
+
+  //jika posisi lsl di bawah maka posisi kontak terbuka pull up resistor jadi HIGH > lampu mati
+  if (digitalRead(lslInputPin) == HIGH && lsl_status == true){
+    digitalWrite(lslLampPin, LOW);
+    lsl_status = false;
+  }
+
+  //jika posisi lsl di atas maka kontak tertutup pull up resistor jadi LOW > lampu nyala
+  if (digitalRead(lslInputPin) == LOW && lsl_status == false){
+    digitalWrite(lslLampPin, HIGH);
+    lsl_status = true;
+  }
+
+//jika timer selesai, solenoid naoh tutup
+  if (solenoidNaOH_status == true && timerFill.done() && scrub_ready == false && fill_timer_status == true){
+    digitalWrite(solenoidNaOHPin,LOW); //tutup solenoid naoh
+    solenoidNaOH_status == false;
+    scrub_ready = true; //ready to scrub
+    lcd.clear();
+    lcd.setCursor(0,0);
+    lcd.print("close solenoid NaOH");
+    delay(500);
+  }
+
+//jika scrub_ready true, cek lsl dan siap-siap buka solenoid co2
+  if (scrub_ready == true && solenoidCO2_status == false){
+    if (lsl_status == false){
+      stopScrubbing();
+      lcd.clear();
+      lcd.setCursor(0,0);
+      lcd.print("not enough NaOH");
+      return 0;
+    }else{
+      digitalWrite(solenoidCO2Pin,HIGH); //buka solenoid co2
+      solenoidCO2_status = true;
+      timerScrub.start();
+      lcd.clear();
+      lcd.setCursor(0,0);
+      lcd.print("start scrubbing");
+      }
+  }
+
+// jika timer scrub selesai, tutup solenoid co2 dan buka kompressor dan reset
+  if (timerScrub.done() && solenoidCO2_status == true && scrub_ready == true){
+    stopScrubbing();
+    lcd.clear();
+    lcd.setCursor(0,0);
+    lcd.print("scrubbing finished");
+  }
+}
