@@ -12,8 +12,8 @@ const int lslLampPin = 36;
 const int kompresorPin = 33;
 const int solenoidNaOHPin = 35;
 const int solenoidCO2Pin = 34;
-const int fill_time = 10000;
-const int scrub_time = 10000;
+const int fill_time = 15000;
+const int scrub_time = 15000;
 const int startPin = 52;
 const int stopPin = 53;
 
@@ -44,6 +44,11 @@ void setup() {
   pinMode(kompresorPin,OUTPUT); //normally closed, HIGH maka relay open
   pinMode(solenoidCO2Pin,OUTPUT);
   pinMode(solenoidNaOHPin,OUTPUT);
+  digitalWrite(solenoidNaOHPin,HIGH); //relay activate low agar awal2 open maka high
+  digitalWrite(solenoidCO2Pin,HIGH); //relay activate low agar awal2 open maka high
+  digitalWrite(kompresorPin,HIGH); //relay activate low agar awal2 closed maka high
+  digitalWrite(lslLampPin, HIGH); //relay activate low agar awal2 open maka high
+  digitalWrite(lshLampPin, HIGH); //relay activate low agar awal2 open maka high
 
   PCICR |= (1 << PCIE0);    //enable PCMSK0 scan                                                 
   PCMSK0 |= (1 << PCINT0);  //Set pin 53 (zero cross input) trigger an interrupt on state change.
@@ -58,10 +63,10 @@ void setup() {
 }
 
 void stopScrubbing(){
-  digitalWrite(solenoidNaOHPin,LOW);
-  digitalWrite(solenoidCO2Pin,LOW); //tutup kontak solenoid co2
+  digitalWrite(solenoidNaOHPin,HIGH); //relay active LOW, maka non aktif HIGH
+  digitalWrite(solenoidCO2Pin,HIGH); //tutup kontak solenoid co2 relay active LOW, maka non aktif HIGH
   delay(500);
-  digitalWrite(kompresorPin,HIGH); //buka kontak kompressor
+  digitalWrite(kompresorPin,LOW); //buka kontak kompressor compressor itu Normally Close dan relay active LOW maka untuk mengaktifkan LO
   solenoidCO2_status = false;
   scrub_ready = false;
   solenoidNaOH_status = false;
@@ -86,7 +91,7 @@ void loop() {
     lcd.clear();
     lcd.setCursor(0,0);
     lcd.print("open solenoid NaOH");
-    digitalWrite(solenoidNaOHPin,HIGH); //buka solenoid naoh
+    digitalWrite(solenoidNaOHPin,LOW); //buka solenoid naoh, relay activate LOW
     timerFill.start(); //start timer
     solenoidNaOH_status = true;
     fill_timer_status = true;
@@ -95,33 +100,33 @@ void loop() {
 //  jika posisi air di atas lsh, maka posisi kontak terbuka sehingga LOW
 //posisi liquid di atas lsh maka lsh_status = false
   if (digitalRead(lshInputPin) == LOW && lsh_status == true){
-    digitalWrite(lshLampPin, HIGH);
+    digitalWrite(lshLampPin, LOW); //relay activate low
     lsh_status = false;
   }
 
   //jika posisi air di bawah lsh, maka posisi kontak tertutup sehingga HIGH
   if (digitalRead(lshInputPin) == HIGH && lsh_status == false){
-    digitalWrite(lshLampPin, LOW);
+    digitalWrite(lshLampPin, HIGH); //relay activate low sehingga untuk non aktif high
     lsh_status = true;
   }
 
   //jika posisi lsl di bawah maka posisi kontak terbuka maka LOW
   if (digitalRead(lslInputPin) == LOW && lsl_status == true){
-    digitalWrite(lslLampPin, LOW);
+    digitalWrite(lslLampPin, HIGH); //relay activate low sehingga untuk non aktif high
     lsl_status = false;
   }
 
-  //jika posisi lsl di atas maka kontak tertutup pull up resistor jadi LOW > lampu nyala
+  //jika posisi lsl di atas maka kontak tertutup sehingga HIGH
   //posisi liquid di atas lsl maka lsl_status = true
   if (digitalRead(lslInputPin) == HIGH && lsl_status == false){
-    digitalWrite(lslLampPin, HIGH);
+    digitalWrite(lslLampPin, LOW); //relay activate low sehingga untuk aktif low
     lsl_status = true;
   }
 
 //jika timer selesai, solenoid naoh tutup
   if (solenoidNaOH_status == true && scrub_ready == false && fill_timer_status == true && pbStart == true){
     if (timerFill.done() || lsh_status == false){
-      digitalWrite(solenoidNaOHPin,LOW); //tutup solenoid naoh
+      digitalWrite(solenoidNaOHPin,HIGH); //tutup solenoid naoh relay activate low untuk non aktif maka high
       solenoidNaOH_status == false;
       scrub_ready = true; //ready to scrub
       lcd.clear();
