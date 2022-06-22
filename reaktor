@@ -123,6 +123,7 @@ void loop() {
     lcd.setCursor(0,0);
     lcd.print("open solenoid NaOH");
     digitalWrite(solenoidNaOHPin,LOW); //buka solenoid naoh, relay activate LOW
+    digitalWrite(kompresorPin,LOW); //kompressor dimatikan sistem relay activate low dan normally closed. Operator buka valve kompressor.
     timerFill.start(); //start timer
     solenoidNaOH_status = true;
     fill_timer_status = true;
@@ -153,6 +154,8 @@ void loop() {
       lcd.print("not enough NaOH");
       return 0;
     }else{
+      digitalWrite(kompresorPin,HIGH); //nyalakan kompressor, relay activate low dan normally closed
+      delay(500); //delay agar kompressor siap
       digitalWrite(solenoidCO2Pin,LOW); //buka solenoid co2 relay activate low maka buka co2 low
       Serial.println("buka solenoid co2");
       solenoidCO2_status = true;
@@ -170,6 +173,8 @@ void loop() {
     lcd.clear();
     lcd.setCursor(0,0);
     lcd.print("scrubbing finished");
+    delay(5000); //berikan waktu operator untuk mematikan kompressor manual selama 5 detik
+    digitalWrite(kompresorPin,HIGH); //kembalikan posisi kontak kompressor ke semula
   }
 }
 
@@ -180,7 +185,6 @@ ISR(PCINT0_vect){
       stopScrubbing();
       pbStart = false;
       pb1_press = true;
-      stopScrubbing();
     }
   }
   else if (pb1_press){
