@@ -5,7 +5,7 @@
  *    Vcc             ==>     Vcc (5v)
  *    Gnd             ==>     Gnd      */
 
-const int timer = 5000;
+const int timer = 10000;
 
 //LCD config
 #include <Wire.h> 
@@ -24,6 +24,7 @@ Neotimer mytimer = Neotimer(timer);
 int firing_pin = 3;
 int zero_cross = 53;
 int sensor_pin = A0;
+int sample_pin = 52;
 float range_max = 100.0;
 
 
@@ -48,7 +49,8 @@ float real_temperature = 0.0;
 float setpoint = 35.0;
 bool pb1_press = false;
 bool pb2_press = false;
-bool pb_start = false;
+bool evap = true;
+bool sample_start = false;
 int sample_count = 0;
 int sample_min = 5;
 float sample_err = 2.0;
@@ -67,12 +69,12 @@ long PID_p = 0;    long PID_i = 0;    long PID_d = 0;
 void setup() {
   //Define the pins
   Serial.begin(9600);
-  pinMode (firing_pin,OUTPUT); 
-  pinMode (zero_cross,INPUT);   
+  pinMode(firing_pin,OUTPUT); 
+  pinMode(zero_cross,INPUT); 
+  pinMode(sample_pin,INPUT);  
   PCICR |= (1 << PCIE0);    //enable PCMSK0 scan                                                 
   PCMSK0 |= (1 << PCINT0);  //Set pin 53 (zero cross input) trigger an interrupt on state change.
-  PCMSK0 |= (1 << PCINT1); //52
-  PCMSK0 |= (1 << PCINT2); //51
+  PCMSK0 |= (1 << PCINT1); //Set pin 52 start timer / sampling
   lcd.begin();       //Start the LC communication
   lcd.backlight();  //Turn on backlight for LCD
 }
@@ -97,28 +99,28 @@ void loop() {
     Serial.println("PID err");
     Serial.println(PID_error);
 
-    if (PID_error <= sample_err && pb_start == true && timer_start == false){
+    if (sample_start == true){
+      if (PID_error <= sample_err && evap == true && timer_start == false){
       Serial.println("count");
       Serial.println(sample_count);
       sample_count++;
-    }
+      }
 
-    if (sample_count > sample_min && pb_start == true){
-      Serial.println("sample count > sample min");
-      if (timer_start == false){
-        Serial.println("timer start");
-        timer_start = true;
-        mytimer.start();
-        lcd.clear();
-        lcd.setCursor(0,0);
-        lcd.print("timer start");
+      if (sample_count > sample_min && evap == true){
+        Serial.println("sample count > sample min");
+        if (timer_start == false){
+          Serial.println("timer start");
+          timer_start = true;
+          mytimer.start();
+        }
       }
     }
 
     if (timer_start == true){
       if (mytimer.done()){
-        pb_start = false;
+        evap = false;
         timer_start = false;
+        sample_start = false;
       }
     }
     
@@ -139,20 +141,36 @@ void loop() {
     if(PID_value > maximum_firing_delay)
     {      PID_value = maximum_firing_delay;    }
     //Printe the values on the LCD
-    lcd.clear();
-    lcd.setCursor(0,0);
-    lcd.print("Set: ");
-    lcd.setCursor(5,0);
-    lcd.print(setpoint);
-    lcd.setCursor(0,1);
-    lcd.print("Real temp: ");
-    lcd.setCursor(11,1);
-    lcd.print(real_temperature);
+    if (evap == true){
+      lcd.clear();
+      lcd.setCursor(0,0);
+      lcd.print("Temp: ");
+      lcd.setCursor(5,0);
+      lcd.print(real_temperature);
+      if (sample_start == true && timer_start == false){
+        if (timer_start == false){
+          lcd.setCursor(0,1);
+          lcd.print("Sample count: ");
+          lcd.setCursor(5,1);
+          lcd.print(sample_count);
+        }
+        else{
+          lcd.setCursor(0,1);
+          lcd.print("TIMER ON ");
+        }
+      }
+    }else{
+      lcd.clear();
+      lcd.setCursor(0,0);
+      lcd.print("Evap done");
+      lcd.setCursor(0,1);
+      lcd.print("Pls Switch Off")
+    }
     previous_error = PID_error; //Remember to store the previous error.
   }
 
   //If the zero cross interruption was detected we create the 100us firing pulse  
-  if (zero_cross_detected && pb_start == true)     
+  if (zero_cross_detected && evap == true)     
     {
       delayMicroseconds(maximum_firing_delay - PID_value); //This delay controls the power
       digitalWrite(firing_pin,HIGH);
@@ -160,7 +178,7 @@ void loop() {
       digitalWrite(firing_pin,LOW);
       zero_cross_detected = false;
     } 
-  else if (zero_cross_detected && pb_start == false){
+  else if (zero_cross_detected && evap == false){
     delayMicroseconds(maximum_firing_delay); //This delay controls the power
     digitalWrite(firing_pin,LOW);
     delayMicroseconds(100);
@@ -191,21 +209,12 @@ ISR(PCINT0_vect){
     }
   if (PINB & B00000010){
     if (!pb1_press){
-      pb_start = true;
+      sample_start = true;
+      pb1_press = true;
     }
-    else if (pb1_press){
+  }
+  else if (pb1_press){
       pb1_press = false;
     }
-  }
-  if (PINB & B00000100){
-    if (!pb2_press){
-      pb_start = false;
-      sample_count = 0;
-      timer_start = false;
-    }
-    else if (pb2_press){
-      pb2_press = false;
-    }
-  }
 }
 //End of interruption vector for pins on port B: D8-D13
