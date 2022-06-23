@@ -1,202 +1,185 @@
+//Library
 #include <Wire.h> 
 #include <LiquidCrystal_I2C.h>
 LiquidCrystal_I2C lcd(0x27,16,2);  //sometimes the adress is not 0x27. Change to 0x3f if it dosn't work.
 #include <neotimer.h>
 
-
 //konstanta
-const int lshInputPin = 22;
-const int lslInputPin = 23;
-const int lshLampPin = 37;
-const int lslLampPin = 36;
-const int kompresorPin = 33;
-const int solenoidNaOHPin = 35;
-const int solenoidCO2Pin = 34;
-const int fill_time = 10000;
-const int scrub_time = 10000;
-const int startPin = 52;
-const int stopPin = 53;
+const int LSH_INPUT_PIN = 22;
+const int LSL_INPUT_PIN = 23;
+const int LSH_OUTPUT_PIN = 37;
+const int LSL_OUTPUT_PIN = 36;
+const int KOMP_PIN = 33;
+const int SOLENOID_NAOH_PIN = 35;
+const int SOLENOID_CO2_PIN = 34;
+const int FILL_TIME = 25000;
+const int SCRUB_TIME = 25000;
+const int PB_FILL_PIN = 52;
+const int PB_STOP_PIN = 53;
+const int PB_SCRUB_PIN = 51;
 
 //variabel
-bool pbStart = false;
-bool scrub_ready = false;
-bool solenoidCO2_status = false;
-bool solenoidNaOH_status = false;
-bool fill_timer_status = false;
-bool scrub_timer_status = false;
-int lsh_status = true; //jika kontak tutup, maka high, dan lsh true. kontak terbuka ketika liquid di atas lsh
-bool lsl_status = false; //jika kontak tutup, maka high, dan lsl true. kontak terbuka ketika liquid di bawah lsl
-bool pb1_press = false;
-bool pb2_press = false;
+bool scrub = false;
+bool fill = false;
+bool solenoid_co2_status = false;
+bool solenoid_naoh_status = false;
+bool lsh_status = true;
+bool lsl_status = false;
+bool scrub_timer = false; //status timer scrub 
+bool fill_timer = false; //status timer fill
+bool pb1_press = false; //tombol fill agar tidak terinput dobel
+bool pb2_press = false; //tombol stop agar tidak terinput dobel
+bool pb3_press = false; //tombol scrub agar tidak terinput dobel
 
-Neotimer timerFill = Neotimer(fill_time);
-Neotimer timerScrub = Neotimer(scrub_time);
+//kelas
+Neotimer fillTimer = Neotimer(FILL_TIME);
+Neotimer scrubTimer = Neotimer(SCRUB_TIME);
 
 void setup() {
-  Serial.begin(9600);
   // put your setup code here, to run once:
-  pinMode(lshInputPin,INPUT);
-  pinMode(lslInputPin,INPUT);
-  pinMode(startPin,INPUT);
-  pinMode(stopPin,INPUT);
-  pinMode(lshLampPin,OUTPUT);
-  pinMode(lslLampPin,OUTPUT); 
-  pinMode(kompresorPin,OUTPUT); //normally closed, HIGH maka relay open
-  pinMode(solenoidCO2Pin,OUTPUT);
-  pinMode(solenoidNaOHPin,OUTPUT);
-  digitalWrite(solenoidNaOHPin,HIGH); //relay activate low agar awal2 open maka high
-  digitalWrite(solenoidCO2Pin,HIGH); //relay activate low agar awal2 open maka high
-  digitalWrite(kompresorPin,HIGH); //relay activate low agar awal2 closed maka high
-  digitalWrite(lslLampPin, HIGH); //relay activate low agar awal2 open maka high
-  digitalWrite(lshLampPin, HIGH); //relay activate low agar awal2 open maka high
+  pinMode(LSL_INPUT_PIN,INPUT);
+  pinMode(LSH_INPUT_PIN,INPUT);
+  pinMode(PB_FILL_PIN,INPUT);
+  pinMode(PB_SCRUB_PIN,INPUT);
+  pinMode(PB_STOP_PIN,INPUT);
+  pinMode(LSL_OUTPUT_PIN,OUTPUT);
+  pinMode(LSH_OUTPUT_PIN,OUTPUT); 
+  pinMode(KOMP_PIN,OUTPUT); //normally closed dan activate low, HIGH maka kontak tertutup
+  pinMode(SOLENOID_NAOH_PIN,OUTPUT);
+  pinMode(SOLENOID_CO2_PIN,OUTPUT);
 
   PCICR |= (1 << PCIE0);    //enable PCMSK0 scan                                                 
-  PCMSK0 |= (1 << PCINT0);  //Set pin 53 (zero cross input) trigger an interrupt on state change.
-  PCMSK0 |= (1 << PCINT1); //52
+  PCMSK0 |= (1 << PCINT0);  //Set pin 53 atau pb stop
+  PCMSK0 |= (1 << PCINT1); //set pin 52 atau pb fill
+  PCMSK0 |= (1 << PCINT2); //set pin 51 atau pb scrub
 
   lcd.begin();
   lcd.backlight();
   lcd.clear();
-  lcd.print("initiating..");
-  
+  lcd.print("reactor status");
+
   delay(500);
 }
 
-void stopScrubbing(){
-  Serial.println("tutup solenoid CO2 atau finish scrubbing");
-  digitalWrite(solenoidNaOHPin,HIGH); //relay active LOW, maka non aktif HIGH
-  digitalWrite(solenoidCO2Pin,HIGH); //tutup kontak solenoid co2 relay active LOW, maka non aktif HIGH
-  delay(500);
-  digitalWrite(kompresorPin,LOW); //buka kontak kompressor compressor itu Normally Close dan relay active LOW maka untuk mengaktifkan LO
-  solenoidCO2_status = false;
-  scrub_ready = false;
-  solenoidNaOH_status = false;
-  fill_timer_status = false;
-  scrub_timer_status = false;
+void stopNow(){
+  digitalWrite(SOLENOID_NAOH_PIN,HIGH); //tutup solenoid naoh, relay activate low
+  digitalWrite(SOLENOID_CO2_PIN,HIGH); //tutup solenoid co2, relay activate low
+  digitalWrite(KOMP_PIN,LOW); //matikan kompressor, relay activate low normally close
+  fill = false;
+  fill_timer = false;
+  scrub = false;
+  scrub_timer = false;
+  solenoid_co2_status = false;
+  solenoid_naoh_status = false;
 }
 
 void loop() {
-
-  Serial.println("LSH");
-  Serial.println(digitalRead(lshInputPin));
+  // put your main code here, to run repeatedly:
   //  jika posisi air di atas lsh maka kontak terbuka LOW
-  if (digitalRead(lshInputPin) == LOW && lsh_status == true){
-    digitalWrite(lshLampPin, LOW); //relay activate low
+  if (digitalRead(LSH_INPUT_PIN) == LOW && lsh_status == true){
+    digitalWrite(LSH_OUTPUT_PIN, LOW); //relay activate low
     Serial.println("lampu lsh nyala");
     lsh_status = false;
   }
 ////
 ////  // jika posisi air di bawah lsh maka kontak tertutup HIGH
-  if (digitalRead(lshInputPin) == HIGH && lsh_status == false){
-    digitalWrite(lshLampPin, HIGH); //relay activate low sehingga untuk non aktif high
+  if (digitalRead(LSH_INPUT_PIN) == HIGH && lsh_status == false){
+    digitalWrite(LSH_OUTPUT_PIN, HIGH); //relay activate low sehingga untuk non aktif high
     Serial.println("lampu lsh mati");
     lsh_status = true;
   }
 ////
 ////  //jika posisi lsl di bawah maka posisi kontak terbuka maka LOW
-  if (digitalRead(lslInputPin) == LOW && lsl_status == true){
-    digitalWrite(lslLampPin, HIGH); //relay activate low sehingga untuk non aktif high
+  if (digitalRead(LSL_INPUT_PIN) == LOW && lsl_status == true){
+    digitalWrite(LSL_OUTPUT_PIN, HIGH); //relay activate low sehingga untuk non aktif high
     Serial.println("lampu lsl mati");
     lsl_status = false;
   }
 ////
 ////  //jika posisi lsl di atas maka posisi kontak tertutup maka HIGH
-  if (digitalRead(lslInputPin) == HIGH && lsl_status == false) {
-    digitalWrite(lslLampPin, LOW); //relay activate low sehingga untuk aktif low
+  if (digitalRead(LSL_INPUT_PIN) == HIGH && lsl_status == false) {
+    digitalWrite(LSL_OUTPUT_PIN, LOW); //relay activate low sehingga untuk aktif low
     Serial.println("lampu lsl nyala");
     lsl_status = true;
   }
-  
-  // put your main code here, to run repeatedly:
-  //jika tombol pbstart true lanjut looping 
-  if (pbStart != true){
-    lcd.clear();
-    lcd.setCursor(0,0);
-    lcd.print("idle");
-    return 0;
-  }
-  
-  //buka solenoid naoh dan start timer
-  if (solenoidNaOH_status == false && scrub_ready == false && pbStart == true){
-    Serial.println("buka solenoid naoh");
-    lcd.clear();
-    lcd.setCursor(0,0);
-    lcd.print("open solenoid NaOH");
-    digitalWrite(solenoidNaOHPin,LOW); //buka solenoid naoh, relay activate LOW
-    digitalWrite(kompresorPin,LOW); //kompressor dimatikan sistem relay activate low dan normally closed. Operator buka valve kompressor.
-    timerFill.start(); //start timer
-    solenoidNaOH_status = true;
-    fill_timer_status = true;
+
+  if (fill == false && scrub == false){
+    return 0; //jika tombol fill dan scrub tidak ditekan
+    //kode ke bawah tidak usah dibaca
   }
 
-//jika timer selesai, solenoid naoh tutup
-  if (solenoidNaOH_status == true && scrub_ready == false && fill_timer_status == true && pbStart == true){
-    if (timerFill.done() || lsh_status == false){
-      Serial.println("tutup solenoid naoh");
-      digitalWrite(solenoidNaOHPin,HIGH); //tutup solenoid naoh relay activate low untuk non aktif maka high
-      solenoidNaOH_status == false;
-      scrub_ready = true; //ready to scrub
+  if (fill == true){ //jika tombol fill ditekan
+    digitalWrite(SOLENOID_NAOH_PIN,LOW);//solenoid naoh dibuka, relay activate low
+    fill_timer = true;
+    solenoid_naoh_status = true;
+    fillTimer.start();
+    lcd.clear();
+    lcd.setCursor(0,0);
+    lcd.print("start filling");
+  }
+
+  if (solenoid_naoh_status == true && fill_timer == true){  //jika solenoid naoh telah terbuka
+    if (fillTimer.done() || lsh_status == false){ //jika timer habis atau posisi air di atas lsh
+      digitalWrite(SOLENOID_NAOH_PIN,HIGH); //solenoid naoh ditutup, relay activate low
+      fill_timer = false;
+      solenoid_naoh_status = false;
       lcd.clear();
       lcd.setCursor(0,0);
-      lcd.print("close solenoid NaOH");
-      delay(500);
+      lcd.print("filling done");
+      fill = false;
     }
   }
 
-//jika scrub_ready true, cek lsl dan siap-siap buka solenoid co2
-  if (scrub_ready == true && solenoidCO2_status == false && pbStart == true){
-    if (lsl_status == false){
-      Serial.println("not enough naoh");
-      stopScrubbing();
-      pbStart = false;
-      lcd.clear();
-      lcd.setCursor(0,0);
-      lcd.print("not enough NaOH");
-      return 0;
-    }else{
-      digitalWrite(kompresorPin,HIGH); //nyalakan kompressor, relay activate low dan normally closed
-      delay(500); //delay agar kompressor siap
-      digitalWrite(solenoidCO2Pin,LOW); //buka solenoid co2 relay activate low maka buka co2 low
-      Serial.println("buka solenoid co2");
-      solenoidCO2_status = true;
-      timerScrub.start();
+  if (scrub == true){ //jika tombol scrub ditekan
+    if (lsl_status == true){ //jika terdapat naoh atau lsl_status == true
+      digitalWrite(SOLENOID_CO2_PIN,LOW);//solenoid co2 dibuka, relay activate low
+      scrub_timer = true;
+      solenoid_co2_status = true;
+      scrubTimer.start();
       lcd.clear();
       lcd.setCursor(0,0);
       lcd.print("start scrubbing");
-      }
+    }
   }
-
-// jika timer scrub selesai, tutup solenoid co2 dan buka kompressor dan reset
-  if (timerScrub.done() && solenoidCO2_status == true && scrub_ready == true&& pbStart == true){
-    stopScrubbing();
-    pbStart = false;
-    lcd.clear();
-    lcd.setCursor(0,0);
-    lcd.print("scrubbing finished");
-    delay(5000); //berikan waktu operator untuk mematikan kompressor manual selama 5 detik
-    digitalWrite(kompresorPin,HIGH); //kembalikan posisi kontak kompressor ke semula
+if (solenoid_co2_status == true && scrub_timer == true){  //jika solenoid naoh telah terbuka
+    if (scrubTimer.done()){ //jika timer habis atau posisi air di atas lsh
+      digitalWrite(SOLENOID_CO2_PIN,HIGH); //solenoid co2 ditutup, relay activate low
+      digitalWrite(KOMP_PIN,LOW); //kompressor dimatikan, normally close relay activate low
+      scrub_timer = false;
+      solenoid_co2_status = false;
+      lcd.clear();
+      lcd.setCursor(0,0);
+      lcd.print("scrubbing done");
+      scrub = false;
+    }
   }
+  
 }
 
 ISR(PCINT0_vect){
   ///////////////////////////////////////Input from optocoupler
   if (PINB & B00000001){
+    if (!pb2_press){
+      stopNow(); //jika tombol stop pb2 ditekan, jalankan fungsi stopNow
+    }
+  }
+  else if (pb2_press){
+      pb2_press = false;
+    }
+  if (PINB & B00000010){
     if (!pb1_press){
-      stopScrubbing();
-      pbStart = false;
-      pb1_press = true;
+      fill = true; //jika tombol fill pb1 ditekan, status fill = true
     }
   }
   else if (pb1_press){
       pb1_press = false;
     }
-  if (PINB & B00000010){
-    if (!pb2_press){
-      pbStart = true;
-      pb2_press = true;
+  if (PINB & B00000100){
+    if (!pb3_press){
+      scrub = true; //jika tombol scrub pb3 ditekan, status scrub = true
     }
   }
-  else if (pb2_press){
-      pb2_press = false;
+  else if (pb3_press){
+      pb1_press = false;
     }
 }
