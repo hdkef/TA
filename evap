@@ -164,7 +164,7 @@ void loop() {
       lcd.setCursor(0,0);
       lcd.print("Evap done");
       lcd.setCursor(0,1);
-      lcd.print("Pls Switch Off")
+      lcd.print("Pls Switch Off");
     }
     previous_error = PID_error; //Remember to store the previous error.
   }
