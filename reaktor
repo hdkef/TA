@@ -12,8 +12,8 @@ const int LSL_OUTPUT_PIN = 36;
 const int KOMP_PIN = 33;
 const int SOLENOID_NAOH_PIN = 35;
 const int SOLENOID_CO2_PIN = 34;
-const int FILL_TIME = 25000;
-const int SCRUB_TIME = 25000;
+const int FILL_TIME = 5000;
+const int SCRUB_TIME = 5000;
 const int PB_FILL_PIN = 52;
 const int PB_STOP_PIN = 53;
 const int PB_SCRUB_PIN = 51;
@@ -36,6 +36,7 @@ Neotimer fillTimer = Neotimer(FILL_TIME);
 Neotimer scrubTimer = Neotimer(SCRUB_TIME);
 
 void setup() {
+  Serial.begin(9600);
   // put your setup code here, to run once:
   pinMode(LSL_INPUT_PIN,INPUT);
   pinMode(LSH_INPUT_PIN,INPUT);
@@ -47,6 +48,11 @@ void setup() {
   pinMode(KOMP_PIN,OUTPUT); //normally closed dan activate low, HIGH maka kontak tertutup
   pinMode(SOLENOID_NAOH_PIN,OUTPUT);
   pinMode(SOLENOID_CO2_PIN,OUTPUT);
+  digitalWrite(SOLENOID_NAOH_PIN,HIGH); //relay activate low agar awal2 open maka high
+  digitalWrite(SOLENOID_CO2_PIN,HIGH); //relay activate low agar awal2 open maka high
+  digitalWrite(KOMP_PIN,HIGH); //relay activate low agar awal2 closed maka high
+  digitalWrite(LSL_OUTPUT_PIN, HIGH); //relay activate low agar awal2 open maka high
+  digitalWrite(LSH_OUTPUT_PIN, HIGH); //relay activate low agar awal2 open maka high
 
   PCICR |= (1 << PCIE0);    //enable PCMSK0 scan                                                 
   PCMSK0 |= (1 << PCINT0);  //Set pin 53 atau pb stop
@@ -108,11 +114,11 @@ void loop() {
     //kode ke bawah tidak usah dibaca
   }
 
-  if (fill == true){ //jika tombol fill ditekan
+  if (fill == true && solenoid_naoh_status == false){ //jika tombol fill ditekan
+    fillTimer.start();
     digitalWrite(SOLENOID_NAOH_PIN,LOW);//solenoid naoh dibuka, relay activate low
     fill_timer = true;
     solenoid_naoh_status = true;
-    fillTimer.start();
     lcd.clear();
     lcd.setCursor(0,0);
     lcd.print("start filling");
@@ -130,8 +136,9 @@ void loop() {
     }
   }
 
-  if (scrub == true){ //jika tombol scrub ditekan
+  if (scrub == true && solenoid_co2_status == false){ //jika tombol scrub ditekan
     if (lsl_status == true){ //jika terdapat naoh atau lsl_status == true
+      digitalWrite(KOMP_PIN,HIGH); //kompressor nyala, normally close relay activate low
       digitalWrite(SOLENOID_CO2_PIN,LOW);//solenoid co2 dibuka, relay activate low
       scrub_timer = true;
       solenoid_co2_status = true;
@@ -161,6 +168,7 @@ ISR(PCINT0_vect){
   if (PINB & B00000001){
     if (!pb2_press){
       stopNow(); //jika tombol stop pb2 ditekan, jalankan fungsi stopNow
+      pb2_press = true;
     }
   }
   else if (pb2_press){
@@ -169,6 +177,7 @@ ISR(PCINT0_vect){
   if (PINB & B00000010){
     if (!pb1_press){
       fill = true; //jika tombol fill pb1 ditekan, status fill = true
+      pb1_press = true;
     }
   }
   else if (pb1_press){
@@ -177,9 +186,10 @@ ISR(PCINT0_vect){
   if (PINB & B00000100){
     if (!pb3_press){
       scrub = true; //jika tombol scrub pb3 ditekan, status scrub = true
+      pb3_press = true;
     }
   }
   else if (pb3_press){
-      pb1_press = false;
+      pb3_press = false;
     }
 }
