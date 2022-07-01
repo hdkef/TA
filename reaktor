@@ -12,13 +12,16 @@ const int LSL_OUTPUT_PIN = 36;
 const int KOMP_PIN = 33;
 const int SOLENOID_NAOH_PIN = 35;
 const int SOLENOID_CO2_PIN = 34;
-const int FILL_TIME = 5000;
-const int SCRUB_TIME = 5000;
+const int FILL_TIME = 25000;
+const int SCRUB_TIME = 120000;
 const int PB_FILL_PIN = 52;
 const int PB_STOP_PIN = 53;
 const int PB_SCRUB_PIN = 51;
+const int MAX_HOLD = 500;
 
 //variabel
+int fill_hold = 0;
+int scrub_hold = 0;
 bool scrub = false;
 bool fill = false;
 bool solenoid_co2_status = false;
@@ -27,9 +30,7 @@ bool lsh_status = true;
 bool lsl_status = false;
 bool scrub_timer = false; //status timer scrub 
 bool fill_timer = false; //status timer fill
-bool pb1_press = false; //tombol fill agar tidak terinput dobel
 bool pb2_press = false; //tombol stop agar tidak terinput dobel
-bool pb3_press = false; //tombol scrub agar tidak terinput dobel
 
 //kelas
 Neotimer fillTimer = Neotimer(FILL_TIME);
@@ -56,8 +57,6 @@ void setup() {
 
   PCICR |= (1 << PCIE0);    //enable PCMSK0 scan                                                 
   PCMSK0 |= (1 << PCINT0);  //Set pin 53 atau pb stop
-  PCMSK0 |= (1 << PCINT1); //set pin 52 atau pb fill
-  PCMSK0 |= (1 << PCINT2); //set pin 51 atau pb scrub
 
   lcd.begin();
   lcd.backlight();
@@ -77,6 +76,8 @@ void stopNow(){
   scrub_timer = false;
   solenoid_co2_status = false;
   solenoid_naoh_status = false;
+  fill_hold = 0;
+  scrub_hold = 0;
 }
 
 void loop() {
@@ -109,6 +110,31 @@ void loop() {
     lsl_status = true;
   }
 
+  //jia tombol fill HIGH dan fill hold < 500 dan fill timer false maka fill hold++ dan delay 1 ms jika fill hold == max hold maka fill == true
+  if (digitalRead(PB_FILL_PIN) == HIGH && fill_hold < MAX_HOLD){
+    if (fill_timer == false){
+      fill_hold+= 1;
+      delay(1);
+    }
+  }else if (digitalRead(PB_FILL_PIN) == HIGH && fill_hold == MAX_HOLD){
+    fill = true;
+  }else{
+    fill_hold = 0; //if no high after some delay,, reset
+  }
+
+  //jia tombol scrbu HIGH dan scrub hold < 500 dan scrub timer false maka scrub hold++ dan delay 1 ms jika scrub hold == max hold maka scrub == true
+  if (digitalRead(PB_SCRUB_PIN) == HIGH && scrub_hold < MAX_HOLD){
+    if (scrub_timer == false){
+      scrub_hold+= 1;
+      delay(1);
+    }
+  }else if (digitalRead(PB_SCRUB_PIN) == HIGH && scrub_hold == MAX_HOLD){
+    scrub = true;
+  }else{
+    scrub_hold = 0; //if no high after some delay,, reset
+  }
+
+
   if (fill == false && scrub == false){
     return 0; //jika tombol fill dan scrub tidak ditekan
     //kode ke bawah tidak usah dibaca
@@ -119,7 +145,6 @@ void loop() {
     digitalWrite(SOLENOID_NAOH_PIN,LOW);//solenoid naoh dibuka, relay activate low
     fill_timer = true;
     solenoid_naoh_status = true;
-    lcd.clear();
     lcd.setCursor(0,0);
     lcd.print("start filling");
   }
@@ -129,10 +154,10 @@ void loop() {
       digitalWrite(SOLENOID_NAOH_PIN,HIGH); //solenoid naoh ditutup, relay activate low
       fill_timer = false;
       solenoid_naoh_status = false;
-      lcd.clear();
       lcd.setCursor(0,0);
       lcd.print("filling done");
       fill = false;
+      fill_hold = false;
     }
   }
 
@@ -143,7 +168,6 @@ void loop() {
       scrub_timer = true;
       solenoid_co2_status = true;
       scrubTimer.start();
-      lcd.clear();
       lcd.setCursor(0,0);
       lcd.print("start scrubbing");
     }
@@ -154,13 +178,12 @@ if (solenoid_co2_status == true && scrub_timer == true){  //jika solenoid naoh t
       digitalWrite(KOMP_PIN,LOW); //kompressor dimatikan, normally close relay activate low
       scrub_timer = false;
       solenoid_co2_status = false;
-      lcd.clear();
       lcd.setCursor(0,0);
       lcd.print("scrubbing done");
       scrub = false;
+      scrub_hold = 0;
     }
   }
-  
 }
 
 ISR(PCINT0_vect){
@@ -173,23 +196,5 @@ ISR(PCINT0_vect){
   }
   else if (pb2_press){
       pb2_press = false;
-    }
-  if (PINB & B00000010){
-    if (!pb1_press){
-      fill = true; //jika tombol fill pb1 ditekan, status fill = true
-      pb1_press = true;
-    }
-  }
-  else if (pb1_press){
-      pb1_press = false;
-    }
-  if (PINB & B00000100){
-    if (!pb3_press){
-      scrub = true; //jika tombol scrub pb3 ditekan, status scrub = true
-      pb3_press = true;
-    }
-  }
-  else if (pb3_press){
-      pb3_press = false;
     }
 }
