@@ -24,8 +24,7 @@ Neotimer mytimer = Neotimer(timer);
 int firing_pin = 3;
 int zero_cross = 53;
 int sensor_pin = A0;
-int sample_pin = 52;
-float range_max = 100.0;
+float range_max = 150.0;
 
 
 
@@ -46,14 +45,11 @@ unsigned long previousMillis = 0;
 unsigned long currentMillis = 0;
 int temp_read_Delay = 500;
 float real_temperature = 0.0;
-float setpoint = 35.0;
-bool pb1_press = false;
-bool pb2_press = false;
+float setpoint = 24.0;
 bool evap = true;
-bool sample_start = false;
 int sample_count = 0;
 int sample_min = 5;
-float sample_err = 2.0;
+float sample_err = 1.0;
 bool timer_start = false;
 
 //PID variables
@@ -70,19 +66,17 @@ void setup() {
   //Define the pins
   Serial.begin(9600);
   pinMode(firing_pin,OUTPUT); 
-  pinMode(zero_cross,INPUT); 
-  pinMode(sample_pin,INPUT);  
+  pinMode(zero_cross,INPUT);  
   PCICR |= (1 << PCIE0);    //enable PCMSK0 scan                                                 
   PCMSK0 |= (1 << PCINT0);  //Set pin 53 (zero cross input) trigger an interrupt on state change.
-  PCMSK0 |= (1 << PCINT1); //Set pin 52 start timer / sampling
   lcd.begin();       //Start the LC communication
   lcd.backlight();  //Turn on backlight for LCD
 }
 
 float readRTD() {
     float analog_raw = analogRead(sensor_pin);
-    float voltage_raw = ((analog_raw * 5.0 / 1024.0) - 1.0);
-    float temp_celcius = voltage_raw * range_max / 4.0;
+    float voltage_raw = ((analog_raw * 5.0 / 1024.0) - 0.92);
+    float temp_celcius = voltage_raw * range_max / 4.08;
     return temp_celcius;
 }
 
@@ -99,8 +93,7 @@ void loop() {
     Serial.println("PID err");
     Serial.println(PID_error);
 
-    if (sample_start == true){
-      if (PID_error <= sample_err && evap == true && timer_start == false){
+    if (PID_error <= sample_err && evap == true && timer_start == false){
       Serial.println("count");
       Serial.println(sample_count);
       sample_count++;
@@ -114,13 +107,11 @@ void loop() {
           mytimer.start();
         }
       }
-    }
 
     if (timer_start == true){
       if (mytimer.done()){
         evap = false;
         timer_start = false;
-        sample_start = false;
       }
     }
     
@@ -142,12 +133,11 @@ void loop() {
     {      PID_value = maximum_firing_delay;    }
     //Printe the values on the LCD
     if (evap == true){
-      lcd.clear();
       lcd.setCursor(0,0);
       lcd.print("Temp: ");
       lcd.setCursor(5,0);
       lcd.print(real_temperature);
-      if (sample_start == true && timer_start == false){
+      if (timer_start == false){
         if (timer_start == false){
           lcd.setCursor(0,1);
           lcd.print("Sample count: ");
@@ -160,7 +150,6 @@ void loop() {
         }
       }
     }else{
-      lcd.clear();
       lcd.setCursor(0,0);
       lcd.print("Evap done");
       lcd.setCursor(0,1);
@@ -206,15 +195,6 @@ ISR(PCINT0_vect){
   else if(last_CH1_state == 1){    //If pin 8 is LOW and the last state was HIGH then we have a state change      
     zero_cross_detected = true;    //We haev detected a state change!  We need both falling and rising edges.
     last_CH1_state = 0;            //Store the current state into the last state for the next loop
-    }
-  if (PINB & B00000010){
-    if (!pb1_press){
-      sample_start = true;
-      pb1_press = true;
-    }
-  }
-  else if (pb1_press){
-      pb1_press = false;
     }
 }
 //End of interruption vector for pins on port B: D8-D13
