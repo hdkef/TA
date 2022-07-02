@@ -138,18 +138,17 @@ void loop() {
       lcd.setCursor(5,0);
       lcd.print(real_temperature);
       if (timer_start == false){
-        if (timer_start == false){
-          lcd.setCursor(0,1);
-          lcd.print("Sample count: ");
-          lcd.setCursor(5,1);
-          lcd.print(sample_count);
-        }
-        else{
+        lcd.setCursor(0,1);
+        lcd.print("sample: ");
+        lcd.setCursor(8,1);
+        lcd.print(sample_count);
+      }
+      else{
           lcd.setCursor(0,1);
           lcd.print("TIMER ON ");
         }
-      }
-    }else{
+    }
+    else{
       lcd.setCursor(0,0);
       lcd.print("Evap done");
       lcd.setCursor(0,1);
