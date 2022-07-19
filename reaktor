@@ -1,7 +1,4 @@
 //Library
-#include <Wire.h> 
-#include <LiquidCrystal_I2C.h>
-LiquidCrystal_I2C lcd(0x27,16,2);  //sometimes the adress is not 0x27. Change to 0x3f if it dosn't work.
 #include <neotimer.h>
 
 //konstanta
@@ -12,8 +9,8 @@ const int LSL_OUTPUT_PIN = 36;
 const int KOMP_PIN = 33;
 const int SOLENOID_NAOH_PIN = 35;
 const int SOLENOID_CO2_PIN = 34;
-const int FILL_TIME = 25000;
-const int SCRUB_TIME = 120000;
+const long FILL_TIME = 14000;
+const long SCRUB_TIME = 3000000;
 const int PB_FILL_PIN = 52;
 const int PB_STOP_PIN = 53;
 const int PB_SCRUB_PIN = 51;
@@ -37,7 +34,6 @@ Neotimer fillTimer = Neotimer(FILL_TIME);
 Neotimer scrubTimer = Neotimer(SCRUB_TIME);
 
 void setup() {
-  Serial.begin(9600);
   // put your setup code here, to run once:
   pinMode(LSL_INPUT_PIN,INPUT);
   pinMode(LSH_INPUT_PIN,INPUT);
@@ -57,13 +53,6 @@ void setup() {
 
   PCICR |= (1 << PCIE0);    //enable PCMSK0 scan                                                 
   PCMSK0 |= (1 << PCINT0);  //Set pin 53 atau pb stop
-
-  lcd.begin();
-  lcd.backlight();
-  lcd.clear();
-  lcd.print("reactor status");
-
-  delay(500);
 }
 
 void stopNow(){
@@ -85,28 +74,24 @@ void loop() {
   //  jika posisi air di atas lsh maka kontak terbuka LOW
   if (digitalRead(LSH_INPUT_PIN) == LOW && lsh_status == true){
     digitalWrite(LSH_OUTPUT_PIN, LOW); //relay activate low
-    Serial.println("lampu lsh nyala");
     lsh_status = false;
   }
 ////
 ////  // jika posisi air di bawah lsh maka kontak tertutup HIGH
   if (digitalRead(LSH_INPUT_PIN) == HIGH && lsh_status == false){
     digitalWrite(LSH_OUTPUT_PIN, HIGH); //relay activate low sehingga untuk non aktif high
-    Serial.println("lampu lsh mati");
     lsh_status = true;
   }
 ////
 ////  //jika posisi lsl di bawah maka posisi kontak terbuka maka LOW
   if (digitalRead(LSL_INPUT_PIN) == LOW && lsl_status == true){
     digitalWrite(LSL_OUTPUT_PIN, HIGH); //relay activate low sehingga untuk non aktif high
-    Serial.println("lampu lsl mati");
     lsl_status = false;
   }
 ////
 ////  //jika posisi lsl di atas maka posisi kontak tertutup maka HIGH
   if (digitalRead(LSL_INPUT_PIN) == HIGH && lsl_status == false) {
     digitalWrite(LSL_OUTPUT_PIN, LOW); //relay activate low sehingga untuk aktif low
-    Serial.println("lampu lsl nyala");
     lsl_status = true;
   }
 
@@ -145,8 +130,6 @@ void loop() {
     digitalWrite(SOLENOID_NAOH_PIN,LOW);//solenoid naoh dibuka, relay activate low
     fill_timer = true;
     solenoid_naoh_status = true;
-    lcd.setCursor(0,0);
-    lcd.print("start filling");
   }
 
   if (solenoid_naoh_status == true && fill_timer == true){  //jika solenoid naoh telah terbuka
@@ -154,8 +137,6 @@ void loop() {
       digitalWrite(SOLENOID_NAOH_PIN,HIGH); //solenoid naoh ditutup, relay activate low
       fill_timer = false;
       solenoid_naoh_status = false;
-      lcd.setCursor(0,0);
-      lcd.print("filling done");
       fill = false;
       fill_hold = false;
     }
@@ -168,8 +149,6 @@ void loop() {
       scrub_timer = true;
       solenoid_co2_status = true;
       scrubTimer.start();
-      lcd.setCursor(0,0);
-      lcd.print("start scrubbing");
     }
   }
 if (solenoid_co2_status == true && scrub_timer == true){  //jika solenoid naoh telah terbuka
@@ -178,8 +157,6 @@ if (solenoid_co2_status == true && scrub_timer == true){  //jika solenoid naoh t
       digitalWrite(KOMP_PIN,LOW); //kompressor dimatikan, normally close relay activate low
       scrub_timer = false;
       solenoid_co2_status = false;
-      lcd.setCursor(0,0);
-      lcd.print("scrubbing done");
       scrub = false;
       scrub_hold = 0;
     }
