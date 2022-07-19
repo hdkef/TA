@@ -5,7 +5,7 @@
  *    Vcc             ==>     Vcc (5v)
  *    Gnd             ==>     Gnd      */
 
-const int timer = 10000;
+const long timer = 600000;
 
 //LCD config
 #include <Wire.h> 
@@ -24,6 +24,7 @@ Neotimer mytimer = Neotimer(timer);
 int firing_pin = 3;
 int zero_cross = 53;
 int sensor_pin = A0;
+int lamp_pin = 28;
 float range_max = 150.0;
 
 
@@ -31,6 +32,8 @@ float range_max = 150.0;
 //Variables
 int last_CH1_state = 0;
 bool zero_cross_detected = false;
+bool lamp_status = true;
+
 
 //////////////////////////////////////////////////////
 int maximum_firing_delay = 7400;
@@ -45,7 +48,7 @@ unsigned long previousMillis = 0;
 unsigned long currentMillis = 0;
 int temp_read_Delay = 500;
 float real_temperature = 0.0;
-float setpoint = 24.0;
+float setpoint = 110.0;
 bool evap = true;
 int sample_count = 0;
 int sample_min = 5;
@@ -58,25 +61,27 @@ float previous_error = 0.0;
 float elapsedTime, Time, timePrev;
 long PID_value = 0;
 //PID constants
-int kp = 500;   int ki= 0;   int kd = 0;
+int kp = 2000;   int ki= 0;   int kd = 0;
 long PID_p = 0;    long PID_i = 0;    long PID_d = 0;
 
 
 void setup() {
   //Define the pins
   Serial.begin(9600);
-  pinMode(firing_pin,OUTPUT); 
+  pinMode(firing_pin,OUTPUT);
+  pinMode(lamp_pin,OUTPUT);  
   pinMode(zero_cross,INPUT);  
   PCICR |= (1 << PCIE0);    //enable PCMSK0 scan                                                 
   PCMSK0 |= (1 << PCINT0);  //Set pin 53 (zero cross input) trigger an interrupt on state change.
   lcd.begin();       //Start the LC communication
   lcd.backlight();  //Turn on backlight for LCD
+  digitalWrite(lamp_pin,LOW);
 }
 
 float readRTD() {
     float analog_raw = analogRead(sensor_pin);
-    float voltage_raw = ((analog_raw * 5.0 / 1024.0) - 0.92);
-    float temp_celcius = voltage_raw * range_max / 4.08;
+    float voltage_raw = ((analog_raw * 5.0 / 1024.0) - 0.6624);
+    float temp_celcius = voltage_raw * range_max / 2.9376;
     return temp_celcius;
 }
 
@@ -167,6 +172,10 @@ void loop() {
       zero_cross_detected = false;
     } 
   else if (zero_cross_detected && evap == false){
+    if (lamp_status == true){
+      lamp_status = false;
+      digitalWrite(lamp_pin,HIGH); //matiin lampu
+    }
     delayMicroseconds(maximum_firing_delay); //This delay controls the power
     digitalWrite(firing_pin,LOW);
     delayMicroseconds(100);
